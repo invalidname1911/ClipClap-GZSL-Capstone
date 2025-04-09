@@ -51,7 +51,10 @@ def get_model_params(
     transformer_use_class_token,
     transformer_embedding_modality,
     modality,
-    word_embeddings
+    word_embeddings,
+    use_mhsa=False,
+    mhsa_heads=8,
+    mhsa_dropout=0.1
     ):
 
     params_model = dict()
@@ -105,4 +108,10 @@ def get_model_params(
 
     params_model['modality'] = modality
     params_model['word_embeddings'] = word_embeddings
+
+    # Add MHSA parameters to the dictionary
+    params_model['use_mhsa'] = use_mhsa
+    params_model['mhsa_heads'] = mhsa_heads
+    params_model['mhsa_dropout'] = mhsa_dropout
+
     return params_model

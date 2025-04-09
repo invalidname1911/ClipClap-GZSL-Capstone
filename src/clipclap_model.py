@@ -138,6 +138,12 @@ class ClipClap_model(nn.Module):
         self.modality = params_model['modality']
         self.word_embeddings = params_model['word_embeddings']
 
+        # MHSA parameters
+        self.use_mhsa = params_model.get('use_mhsa', False) # Use .get for backward compatibility
+        self.mhsa_heads = params_model.get('mhsa_heads', 8)
+        self.mhsa_dropout = params_model.get('mhsa_dropout', 0.1)
+        self.mhsa_layer = None
+
         if self.modality == 'audio':
             self.O_enc = EmbeddingNet(
                 input_size=1024,
@@ -177,12 +183,25 @@ class ClipClap_model(nn.Module):
             elif self.word_embeddings == 'clip':
                 w_in_dim = 512
 
+            # Define MHSA layer input dimension for 'both' modality
+            mhsa_in_dim = 1536 # v(512) + a(1024)
+
             self.W_enc = EmbeddingNet(
                 input_size=w_in_dim,
                 output_size=512,
                 dropout=0.1,
                 use_bn=True
             )
+
+            # Initialize MHSA layer if requested
+            if self.use_mhsa:
+                print('Initializing MHSA layer...', end='')
+                self.mhsa_layer = nn.MultiheadAttention(
+                    embed_dim=mhsa_in_dim,
+                    num_heads=self.mhsa_heads,
+                    dropout=self.mhsa_dropout,
+                    batch_first=True # Input shape: (batch, seq, feature)
+                )
 
 
 
@@ -280,8 +299,18 @@ class ClipClap_model(nn.Module):
                 w = w[:,:512]
             model_input = torch.cat((v, a), dim=1)
 
-
-        o = self.O_enc(model_input)
+            # Apply MHSA if enabled
+            if self.use_mhsa and self.mhsa_layer is not None:
+                # MHSA expects (batch, seq_len, embed_dim)
+                # Our input is (batch, embed_dim), treat as seq_len=1
+                mhsa_input = model_input.unsqueeze(1)
+                attn_output, _ = self.mhsa_layer(mhsa_input, mhsa_input, mhsa_input)
+                # Squeeze back to (batch, embed_dim)
+                attended_features = attn_output.squeeze(1)
+                o = self.O_enc(attended_features)
+            else:
+                # Original path without MHSA
+                o = self.O_enc(model_input)
 
         w = self.W_enc(w)
 

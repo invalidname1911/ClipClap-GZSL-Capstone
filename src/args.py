@@ -623,11 +623,12 @@ def args_main(*args, **kwargs):
     )
 
     ### Model Sequence Configuration ###
-    parser.add_argument(
-        "--new_model_sequence",
-        help="Use the new model sequence (relevant for evaluation)",
-        type=str_to_bool, nargs='?', const=True
-    )
+    # Remove the duplicate definition of --new_model_sequence
+    # parser.add_argument(
+    #     "--new_model_sequence",
+    #     help="Use the new model sequence (relevant for evaluation)",
+    #     type=str_to_bool, nargs='?', const=True
+    # )
 
     parser.add_argument(
         "--embedding_dropout",

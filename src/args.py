@@ -509,6 +509,27 @@ def args_main(*args, **kwargs):
         help="In transformer use only cross-attention between modalities",
         type=str_to_bool, nargs='?', const=True
     )
+    
+    ###### Multi-Head Self-Attention parameters
+    parser.add_argument(
+        "--use_mhsa",
+        help="Use Multi-Head Self-Attention layer for audio-visual fusion",
+        type=str_to_bool, nargs='?', const=True,
+        default=False
+    )
+    parser.add_argument(
+        "--mhsa_num_heads",
+        help="Number of attention heads in MHSA layer",
+        type=int,
+        default=8
+    )
+    parser.add_argument(
+        "--mhsa_dropout",
+        help="Dropout probability in MHSA layer",
+        type=float,
+        default=0.1
+    )
+    
     parser.add_argument(
         "--audio_only",
         help="In transformer, use only audio modality.",

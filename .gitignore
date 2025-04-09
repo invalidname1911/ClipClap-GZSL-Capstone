@@ -45,3 +45,4 @@ venv.bak/
 runs/
 dat/
 --*
+logs/

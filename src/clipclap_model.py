@@ -33,7 +33,93 @@ def enable_running_stats(model):
     model.apply(_enable)
 
 
-
+class MultiHeadSelfAttention(nn.Module):
+    """
+    Multi-Head Self-Attention module for audio-visual feature fusion
+    
+    Parameters:
+    -----------
+    dim : int
+        Input dimension of the feature
+    num_heads : int
+        Number of attention heads
+    dropout : float
+        Dropout probability for attention weights
+    """
+    def __init__(self, dim, num_heads=8, dropout=0.1):
+        super(MultiHeadSelfAttention, self).__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.head_dim = dim // num_heads
+        assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
+        
+        # Linear projections for queries, keys, values
+        self.q_proj = nn.Linear(dim, dim)
+        self.k_proj = nn.Linear(dim, dim)
+        self.v_proj = nn.Linear(dim, dim)
+        self.out_proj = nn.Linear(dim, dim)
+        
+        self.attn_dropout = nn.Dropout(dropout)
+        self.out_dropout = nn.Dropout(dropout)
+        
+        self.scale = self.head_dim ** -0.5
+        
+        # Layer normalization for better stability
+        self.layer_norm = nn.LayerNorm(dim)
+        
+    def forward(self, x):
+        """
+        Forward pass for multi-head self-attention
+        
+        Parameters:
+        -----------
+        x : torch.Tensor
+            Input tensor of shape (batch_size, seq_len, dim)
+            For our case, seq_len=1 as we're working with feature vectors
+            
+        Returns:
+        --------
+        torch.Tensor
+            Output tensor of the same shape as input after self-attention
+        """
+        # Apply layer normalization
+        residual = x
+        x = self.layer_norm(x)
+        
+        batch_size = x.size(0)
+        
+        # Project queries, keys, values
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        
+        # Reshape for multi-head attention
+        q = q.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # Compute attention scores
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        attn_probs = F.softmax(attn_scores, dim=-1)
+        attn_probs = self.attn_dropout(attn_probs)
+        
+        # Apply attention weights to values
+        attn_output = torch.matmul(attn_probs, v)
+        
+        # Reshape back
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, 1, self.dim)
+        
+        # Final projection
+        output = self.out_proj(attn_output)
+        output = self.out_dropout(output)
+        
+        # Add residual connection
+        output = output + residual
+        
+        # Remove the extra dimension (seq_len=1)
+        output = output.squeeze(1)
+        
+        return output
 
 
 class EmbeddingNet(nn.Module):
@@ -126,7 +212,11 @@ class ClipClap_model(nn.Module):
         self.cross_entropy_loss=params_model['cross_entropy_loss']
         self.hidden_size_encoder=params_model['encoder_hidden_size']
         self.drop_enc=params_model['dropout_encoder']
-
+        
+        # Multi-head attention parameters
+        self.use_mhsa = params_model.get('use_mhsa', False)  # Whether to use MHSA (defaults to False)
+        self.mhsa_num_heads = params_model.get('mhsa_num_heads', 8)  # Number of attention heads
+        self.mhsa_dropout = params_model.get('mhsa_dropout', 0.1)  # Dropout for attention
 
         self.rec_loss = params_model['rec_loss']
 
@@ -164,7 +254,19 @@ class ClipClap_model(nn.Module):
                 dropout=0.1,
                 use_bn=True
             )
-        else:
+        else:  # audio-visual case
+            # For audio-visual mode, we may add a Multi-Head Self-Attention layer
+            self.input_dim_av = 1536  # Combined dimension of audio (1024) and visual (512) features
+            
+            if self.use_mhsa:
+                # Initialize MHSA layer for audio-visual features
+                self.mhsa = MultiHeadSelfAttention(
+                    dim=self.input_dim_av,
+                    num_heads=self.mhsa_num_heads,
+                    dropout=self.mhsa_dropout
+                )
+                print(f' Added MHSA with {self.mhsa_num_heads} heads...', end='')
+            
             self.O_enc = EmbeddingNet(
                 input_size=1536,
                 output_size=512,
@@ -279,6 +381,13 @@ class ClipClap_model(nn.Module):
             elif self.word_embeddings == 'clip':
                 w = w[:,:512]
             model_input = torch.cat((v, a), dim=1)
+            
+            # Apply Multi-Head Self-Attention if enabled
+            if self.use_mhsa:
+                # MHSA expects input shape [batch_size, seq_len, dim]
+                # For feature vectors, we add a dummy sequence dimension
+                model_input = model_input.unsqueeze(1)
+                model_input = self.mhsa(model_input)
 
 
         o = self.O_enc(model_input)

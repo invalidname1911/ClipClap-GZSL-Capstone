@@ -537,6 +537,13 @@ class ClipClap_model(nn.Module):
             elif self.word_embeddings == 'clip':
                 w = w[:,:512]
             model_input = torch.cat((v, a), dim=1)
+            
+            # Apply Multi-Head Self-Attention if enabled - same as in forward method
+            if hasattr(self, 'use_mhsa') and self.use_mhsa:
+                # MHSA expects input shape [batch_size, seq_len, dim]
+                # For feature vectors, we add a dummy sequence dimension
+                model_input = model_input.unsqueeze(1)
+                model_input = self.mhsa(model_input)
 
 
         o = self.O_enc(model_input)

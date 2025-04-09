@@ -231,7 +231,11 @@ def main(args):
         args.transformer_embedding_time_embed_type, args.transformer_embedding_fourier_scale, args.transformer_embedding_embed_augment_position,
         args.lr_scheduler, args.optimizer, args.use_self_attention, args.use_cross_attention, args.transformer_average_features,
         args.audio_only, args.video_only, args.transformer_use_class_token, args.transformer_embedding_modality,
-        args.modality, args.word_embeddings
+        args.modality, args.word_embeddings,
+        # Pass MHSA parameters
+        use_mhsa=args.use_mhsa,
+        mhsa_heads=args.mhsa_heads,
+        mhsa_dropout=args.mhsa_dropout
     )
     if args.new_model_sequence==True:
         model = ClipClap_model(model_params, input_size_audio=args.input_size_audio, input_size_video=args.input_size_video)

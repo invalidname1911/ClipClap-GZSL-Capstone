@@ -109,7 +109,11 @@ def get_evaluation(args):
         config.transformer_embedding_time_embed_type, config.transformer_embedding_fourier_scale, config.transformer_embedding_embed_augment_position,
         config.lr_scheduler, config.optimizer, config.use_self_attention, config.use_cross_attention, config.transformer_average_features,
         config.audio_only, config.video_only, config.transformer_use_class_token, config.transformer_embedding_modality,
-        config.modality, config.word_embeddings
+        config.modality, config.word_embeddings,
+        # Add MHSA parameters for evaluation
+        getattr(config, 'use_mhsa', False), 
+        getattr(config, 'mhsa_num_heads', 8),
+        getattr(config, 'mhsa_dropout', 0.1)
     )
 
     if config.new_model_sequence==True:

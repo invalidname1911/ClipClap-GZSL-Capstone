@@ -53,71 +53,62 @@ class MultiHeadSelfAttention(nn.Module):
         self.head_dim = dim // num_heads
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
         
-        # Linear projections for queries, keys, values
+        # Pre-normalization (better gradient flow)
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+        
+        # Linear projections
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
         self.v_proj = nn.Linear(dim, dim)
         self.out_proj = nn.Linear(dim, dim)
         
+        # Initialize with smaller weights
+        nn.init.xavier_uniform_(self.q_proj.weight, gain=0.02)
+        nn.init.xavier_uniform_(self.k_proj.weight, gain=0.02)
+        nn.init.xavier_uniform_(self.v_proj.weight, gain=0.02)
+        nn.init.xavier_uniform_(self.out_proj.weight, gain=0.02)
+        
         self.attn_dropout = nn.Dropout(dropout)
         self.out_dropout = nn.Dropout(dropout)
         
-        self.scale = self.head_dim ** -0.5
-        
-        # Layer normalization for better stability
-        self.layer_norm = nn.LayerNorm(dim)
+        # Adjusted scaling factor
+        self.scale = (self.head_dim ** -0.5) * 0.5
         
     def forward(self, x):
-        """
-        Forward pass for multi-head self-attention
-        
-        Parameters:
-        -----------
-        x : torch.Tensor
-            Input tensor of shape (batch_size, seq_len, dim)
-            For our case, seq_len=1 as we're working with feature vectors
-            
-        Returns:
-        --------
-        torch.Tensor
-            Output tensor of the same shape as input after self-attention
-        """
-        # Apply layer normalization
         residual = x
-        x = self.layer_norm(x)
+        
+        # Pre-normalization
+        x = self.norm1(x)
         
         batch_size = x.size(0)
         
-        # Project queries, keys, values
-        q = self.q_proj(x)
+        # Project and scale queries, keys, values
+        q = self.q_proj(x) * self.scale
         k = self.k_proj(x)
         v = self.v_proj(x)
         
         # Reshape for multi-head attention
-        q = q.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(batch_size, 1, self.num_heads, self.head_dim).transpose(1, 2)
+        q = q.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
+        v = v.view(batch_size, -1, self.num_heads, self.head_dim).transpose(1, 2)
         
-        # Compute attention scores
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
+        # Compute attention scores with stable softmax
+        attn_scores = torch.matmul(q, k.transpose(-2, -1))
+        attn_scores = attn_scores - attn_scores.max(dim=-1, keepdim=True)[0]  # Numerical stability
         attn_probs = F.softmax(attn_scores, dim=-1)
         attn_probs = self.attn_dropout(attn_probs)
         
         # Apply attention weights to values
         attn_output = torch.matmul(attn_probs, v)
         
-        # Reshape back
-        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, 1, self.dim)
-        
-        # Final projection
+        # Reshape and project output
+        attn_output = attn_output.transpose(1, 2).contiguous().view(batch_size, -1, self.dim)
         output = self.out_proj(attn_output)
         output = self.out_dropout(output)
         
-        # Add residual connection
-        output = output + residual
-        
-        # Remove the extra dimension (seq_len=1)
-        output = output.squeeze(1)
+        # Post-normalization and residual
+        output = self.norm2(output + residual)
         
         return output
 
@@ -368,10 +359,10 @@ class ClipClap_model(nn.Module):
         b, _ = a.shape
         device = a.device
         v = v.type(torch.float32)
+
         if self.modality == 'audio':
             w = w[:,512:]
             model_input = a
-
         elif self.modality == 'video':
             w = w[:,:512]
             model_input = v
@@ -382,31 +373,23 @@ class ClipClap_model(nn.Module):
                 w = w[:,:512]
             model_input = torch.cat((v, a), dim=1)
             
-            # Apply Multi-Head Self-Attention if enabled
-            if self.use_mhsa:
-                # MHSA expects input shape [batch_size, seq_len, dim]
-                # For feature vectors, we add a dummy sequence dimension
-                model_input = model_input.unsqueeze(1)
-                model_input = self.mhsa(model_input)
-
+            # Apply Multi-Head Self-Attention if enabled with residual connection
+            if hasattr(self, 'use_mhsa') and self.use_mhsa:
+                # Reshape for MHSA [batch_size, seq_len=1, dim]
+                mhsa_input = model_input.unsqueeze(1)
+                # Apply MHSA and add residual connection
+                mhsa_output = self.mhsa(mhsa_input)
+                # Reshape back and combine with original input
+                model_input = model_input + mhsa_output.squeeze(1)
 
         o = self.O_enc(model_input)
-
         w = self.W_enc(w)
 
-
-
         theta_o = self.O_proj(o)
-
-
         rho_o = self.D_o(theta_o)
 
-
         theta_w = self.W_proj(w)
-
-
-        rho_w=self.D_w(theta_w)
-
+        rho_w = self.D_w(theta_w)
 
         output = {
             "theta_w": theta_w,
@@ -416,9 +399,7 @@ class ClipClap_model(nn.Module):
             "rho_o": rho_o,
         }
 
-
         return output
-
 
     def compute_loss(self, outputs, embeddings_crossentropy, gt_cross_entropy):
 
@@ -522,12 +503,9 @@ class ClipClap_model(nn.Module):
         device = a.device
         v = v.type(torch.float32)
 
-
-
         if self.modality == 'audio':
             w = w[:,512:]
             model_input = a
-
         elif self.modality == 'video':
             w = w[:,:512]
             model_input = v
@@ -538,22 +516,15 @@ class ClipClap_model(nn.Module):
                 w = w[:,:512]
             model_input = torch.cat((v, a), dim=1)
             
-            # Apply Multi-Head Self-Attention if enabled - same as in forward method
+            # Apply Multi-Head Self-Attention if enabled with residual connection
             if hasattr(self, 'use_mhsa') and self.use_mhsa:
-                # MHSA expects input shape [batch_size, seq_len, dim]
-                # For feature vectors, we add a dummy sequence dimension
-                model_input = model_input.unsqueeze(1)
-                model_input = self.mhsa(model_input)
-
+                mhsa_input = model_input.unsqueeze(1)
+                mhsa_output = self.mhsa(mhsa_input)
+                model_input = model_input + mhsa_output.squeeze(1)
 
         o = self.O_enc(model_input)
-
         w = self.W_enc(w)
-
-
-
         theta_o = self.O_proj(o)
-
-        theta_w=self.W_proj(w)
+        theta_w = self.W_proj(w)
 
         return theta_o, theta_o, theta_w

@@ -623,56 +623,8 @@ def args_main(*args, **kwargs):
     )
 
     ### Model Sequence Configuration ###
-    # Remove the duplicate definition of --new_model_sequence
-    # parser.add_argument(
-    #     "--new_model_sequence",
-    #     help="Use the new model sequence (relevant for evaluation)",
-    #     type=str_to_bool, nargs='?', const=True
-    # )
 
-    parser.add_argument(
-        "--embedding_dropout",
-        help="dropout for the embedding layer",
-        type=float
-    )
-
-    parser.add_argument(
-        "--decoder_dropout",
-        help="dropout for the decoder layer",
-        type=float
-    )
-
-    parser.add_argument(
-        "--additional_dropout",
-        help="dropout for the decoder layer",
-        type=float
-    )
-
-    parser.add_argument(
-        "--embeddings_hidden_size",
-        help="hidden size for the embeddings layer",
-        type=int
-    )
-
-    parser.add_argument(
-        "--decoder_hidden_size",
-        help="hidden size for the decoder layer",
-        type=int
-    )
-
-    parser.add_argument(
-        "--embeddings_batch_norm",
-        help="Flag for setting batch normalization for the embeddings",
-        type=str_to_bool, nargs='?', const=True
-    )
-
-    parser.add_argument(
-        "--rec_loss",
-        help="Flag for setting the reconstruction loss",
-        type=str_to_bool, nargs='?', const=True
-    )
-
-    # Add MHSA arguments here
+    # MHSA arguments
     parser.add_argument(
         "--use_mhsa",
         help="Flag to enable Multi-Head Self-Attention after audio-visual concatenation.",

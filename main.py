@@ -1,5 +1,6 @@
-import sys
 import torch
+print(f"PyTorch version being used: {torch.__version__}")
+import sys
 from torch import optim
 
 from torch.utils import data
